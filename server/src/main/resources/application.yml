@@ -1,0 +1,15 @@
+server:
+  port: 7000
+  debug: true
+  show-banner: false
+
+database:
+  driver-class-name: org.hsqldb.jdbc.JDBCDriver
+  jdbc-url: jdbc:hsqldb:file:db/sa
+  username: SA
+  password:
+  hikari:
+    max-pool-size: 2
+
+template:
+  location: file:/Users/bonjour/low-code/scratch/src/main/resources/template

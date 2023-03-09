@@ -1,0 +1,68 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
+plugins {
+    id 'org.springframework.boot' version '2.7.9'
+    id 'org.jetbrains.kotlin.jvm' version '1.8.10'
+}
+
+group = 'scratch'
+version = '1.0-SNAPSHOT'
+sourceCompatibility = '11'
+
+repositories {
+    maven { url('https://itro.koreanair.com/library/repository/maven-releases-prd/') }
+    maven { url('https://itro.koreanair.com/library/repository/maven-releases-dev/') }
+    mavenCentral()
+}
+
+
+def versions= [
+        javalin: '5.3.2',
+        hoplite: '2.7.2',
+        slf4j: '2.0.6',
+        logback: '1.4.5'
+]
+
+dependencies {
+    implementation "io.javalin:javalin:${versions.javalin}"
+    implementation "io.javalin:javalin-rendering:${versions.javalin}"
+    implementation "org.slf4j:slf4j-api:${versions.slf4j}"
+
+    implementation "ch.qos.logback:logback-classic:${versions.logback}"
+
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.13.3'
+    implementation "com.sksamuel.hoplite:hoplite-core:${versions.hoplite}"
+    implementation "com.sksamuel.hoplite:hoplite-yaml:${versions.hoplite}"
+
+    implementation 'com.zaxxer:HikariCP:5.0.1'
+    implementation 'org.postgresql:postgresql:42.5.4'
+    implementation "com.oracle:ojdbc8:12.2.0.1.0"
+    implementation 'com.fasterxml.jackson.module:jackson-module-kotlin:2.14.2'
+
+
+    runtimeOnly 'org.hsqldb:hsqldb:2.7.1'
+    implementation 'org.hsqldb:hsqldb:2.7.1'
+    implementation 'io.github.microutils:kotlin-logging-jvm:3.0.5'
+    implementation 'org.freemarker:freemarker:2.3.32'
+    implementation 'org.apache.commons:commons-text:1.6'
+
+
+    testImplementation 'org.jetbrains.kotlin:kotlin-test'
+}
+
+//test {
+//    useJUnitPlatform()
+//}
+
+
+tasks.withType(KotlinCompile) {
+    kotlinOptions {
+        freeCompilerArgs = ['-Xjsr305=strict']
+        jvmTarget = '11'
+    }
+}
+
+bootJar {
+    archiveFileName = 'uber.jar'
+    exclude('*.yml')
+}
