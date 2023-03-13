@@ -12,8 +12,7 @@ import freemarker.template.Configuration
 import freemarker.template.TemplateMethodModelEx
 import freemarker.template.TemplateScalarModel
 import io.javalin.Javalin
-import io.javalin.apibuilder.ApiBuilder.path
-import io.javalin.apibuilder.ApiBuilder.post
+import io.javalin.apibuilder.ApiBuilder.*
 import io.javalin.http.ContentType
 import io.javalin.http.Context
 import io.javalin.http.HttpStatus
@@ -40,7 +39,10 @@ data class Database(
     var driverClassName: String? = null,
     var username: String? = null,
     var password: String? = null,
+    var hikari: Hikari? = null
 )
+
+data class Hikari(var maxPoolSize: Int?)
 
 data class Template(val location: String)
 data class Config(val server: Server, val database: Database, val template: Template)
@@ -73,6 +75,7 @@ data class JavaModel(
     val useUnderscore: Boolean? = false,
     val jsonFormat: String? = null,
     val jsonProperty: String? = null,
+    val property: String? = null,
     val column: Column
 )
 
@@ -87,13 +90,65 @@ data class JavaClass (
 
 val logger = KotlinLogging.logger { }
 val store = ConcurrentHashMap<String, DataSource?>()
+var config: Config = loadConfig()
+var cfg: Configuration = initTemplate()
 
-class App {
-    var config: Config = loadConfig()
-    var cfg: Configuration = initTemplate()
+
+
+
+fun initTemplate(): Configuration {
+
+    return Configuration(Configuration.VERSION_2_3_32).apply {
+        cacheStorage = NullCacheStorage()
+
+        //https://tm8r.hateblo.jp/entry/20110915/1316097034
+        setSharedVariable("camel", object : TemplateMethodModelEx {
+            override fun exec(arguments: MutableList<Any?>?): Any? {
+                return if(arguments?.size == 1) {
+                    val str = (arguments[0] as TemplateScalarModel).asString
+                    CaseUtils.toCamelCase(str, false, '_')
+                } else
+                    null
+            }
+        })
+
+        when {
+              config.template.location.startsWith("classpath:") ->  ClassTemplateLoader(this::class.java.classLoader, config.template.location.substring(10))
+              config.template.location.startsWith("file:") -> FileTemplateLoader(File( config.template.location.substring(5)))
+              else -> throw Exception("invalid templateloader")
+          }.also {
+            templateLoader = it
+        }
+    }
 }
 
-fun App.start() {
+fun registerRenderer() {
+
+    JavalinRenderer.register({ filePath, model, _ ->
+        val template = cfg.getTemplate(filePath)
+
+        StringWriter().run {
+            BufferedWriter(this).use { out ->
+                template.process(model, out)
+            }
+            toString()
+        }
+
+    }, FREEMARKER_EXT)
+
+}
+
+fun loadConfig(): Config {
+    return ConfigLoaderBuilder.default()
+        .addResourceSource("/application.yml", optional = true)
+        .addResourceOrFileSource("application.yml", optional = true)
+        .build()
+        .loadConfigOrThrow()
+}
+
+fun main() {
+
+    registerRenderer()
 
     val app = Javalin.create { javalinConfig ->
         javalinConfig.showJavalinBanner = config.server.showBanner
@@ -116,8 +171,8 @@ fun App.start() {
 
     }.routes {
         path("/api") {
-            post("/pool", ::poolHandler)
-          //  get("/connected", ::connectedHandler)
+            post("/datasource", ::createDataSourceHandler)
+            get("/datasource", ::getDataSourceHandler)
             post("/table", ::queryHandle)
             post("/template", ::templateHandle)
         }
@@ -135,65 +190,6 @@ fun App.start() {
 }
 
 
-
-fun App.initTemplate(): Configuration {
-
-    return Configuration(Configuration.VERSION_2_3_32).apply {
-        cacheStorage = NullCacheStorage()
-
-        //https://tm8r.hateblo.jp/entry/20110915/1316097034
-        setSharedVariable("camel", object : TemplateMethodModelEx {
-            override fun exec(arguments: MutableList<Any?>?): Any? {
-                if(arguments?.size == 1) {
-                    val str = (arguments[0] as TemplateScalarModel).asString
-                    return CaseUtils.toCamelCase(str, false, '_')
-                }
-                else
-                    return null
-            }
-        })
-
-        when {
-              config.template.location.startsWith("classpath:") ->  ClassTemplateLoader(App::class.java.classLoader, config.template.location.substring(10))
-              config.template.location.startsWith("file:") -> FileTemplateLoader(File( config.template.location.substring(5)))
-              else -> throw Exception("invalid templateloader")
-          }.also {
-            templateLoader = it
-        }
-    }
-}
-
-fun App.registerRenderer() {
-
-    JavalinRenderer.register({ filePath, model, _ ->
-        val template = cfg.getTemplate(filePath)
-
-        StringWriter().run {
-            BufferedWriter(this).use { out ->
-                template.process(model, out)
-            }
-            toString()
-        }
-
-    }, FREEMARKER_EXT)
-
-}
-
-fun App.loadConfig(): Config {
-    return ConfigLoaderBuilder.default()
-        .addResourceSource("/application.yml", optional = true)
-        .addResourceOrFileSource("application.yml", optional = true)
-        .build()
-        .loadConfigOrThrow()
-}
-
-fun main() {
-    val app = App()
-    app.registerRenderer()
-    app.start()
-}
-
-
 fun makeDatasource(
     driverClassName: String,
     jdbcUrl: String,
@@ -206,7 +202,7 @@ fun makeDatasource(
         this.jdbcUrl = jdbcUrl
         this.username = username ?: ""
         this.password = password ?: ""
-        this.maximumPoolSize = 2
+        this.maximumPoolSize = config.database.hikari?.maxPoolSize ?: 2
     }
 
     return HikariDataSource(config)
@@ -319,24 +315,24 @@ fun getResultData(resultSet: ResultSet, fetchSize: Int): MutableList<Map<String,
 }
 
 fun templateHandle(ctx: Context) {
-//
-//    val model = ctx.bodyAsClass(JavaModel::class.java)
-//
-//    model.template?.let {
-//        ctx.render("${it.lowercase()}${FREEMARKER_EXT}",
-//            mapOf("columns" to model.columns,
-//                ""
-//            ))
-//    } ?: Exception("invalid request")
-//
+
+   /* val model = ctx.bodyAsClass(JavaModel::class.java)
+
+    model.template?.let {
+        ctx.render("${it.lowercase()}${FREEMARKER_EXT}",
+            mapOf("columns" to model.columns,
+                ""
+            ))
+    } ?: Exception("invalid request")*/
+
 }
 
-fun poolHandler(ctx: Context) {
+fun createDataSourceHandler(ctx: Context) {
     val db = ctx.bodyAsClass(Database::class.java)
     store[db.name!!] = makeDatasource(db.driverClassName!!, db.jdbcUrl!!, db.username, db.password)
     ctx.status(HttpStatus.OK)
 }
 
-fun connectedHandler(ctx: Context) {
+fun getDataSourceHandler(ctx: Context) {
     ctx.json(store.keys())
 }
