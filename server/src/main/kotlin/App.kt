@@ -14,8 +14,6 @@ import freemarker.template.TemplateScalarModel
 import io.javalin.Javalin
 import io.javalin.apibuilder.ApiBuilder.*
 import io.javalin.http.ContentType
-import io.javalin.http.Context
-import io.javalin.http.HttpStatus
 import io.javalin.http.staticfiles.Location
 import io.javalin.rendering.JavalinRenderer
 import mu.KotlinLogging
@@ -29,64 +27,6 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.sql.DataSource
 import kotlin.collections.set
 
-
-const val FREEMARKER_EXT = ".ftl"
-
-data class Server(val port: Int, val debug: Boolean = false, val showBanner: Boolean = false)
-data class Database(
-    var name: String? = null,
-    var jdbcUrl: String? = null,
-    var driverClassName: String? = null,
-    var username: String? = null,
-    var password: String? = null,
-    var hikari: Hikari? = null
-)
-
-data class Hikari(var maxPoolSize: Int?)
-
-data class Template(val location: String)
-data class Config(val server: Server, val database: Database, val template: Template)
-
-data class Query(
-    var statement: String? = null,
-    var schema: String? = null,
-    var table: String? = null,
-    var fetchSize: Int? = null
-)
-
-
-data class Column(
-    val table: String,
-    val name: String,
-    var label: String?,
-    val size: Int,
-    val nullable: Boolean = false,
-    val autoIncrement: Boolean = false,
-    var sqlType: SQLType? = null,
-    val className: String? = null,
-    var scale: Scale? = null
-)
-
-data class SQLType(val type: Int, val name: String)
-data class Scale(val size: Int?, val precision: Int?)
-data class SQLModel(var columns: List<Column>? = null, var template: String? = null)
-
-data class JavaModel(
-    val useUnderscore: Boolean? = false,
-    val jsonFormat: String? = null,
-    val jsonProperty: String? = null,
-    val property: String? = null,
-    val column: Column
-)
-
-data class JavaClass (
-    val className: String,
-    val packageName: String,
-    val validation: Boolean? = false,
-    val builder: Boolean? = false,
-    val template: String,
-    val properties: List<JavaModel> = mutableListOf()
-)
 
 val logger = KotlinLogging.logger { }
 val store = ConcurrentHashMap<String, DataSource?>()
@@ -235,37 +175,6 @@ fun connection(key: String, fetchSize: Int?, f: (Connection) -> ResultSet): Map<
 }
 
 
-fun queryHandle(ctx: Context) {
-    val query = ctx.bodyAsClass(Query::class.java)
-    logger.debug( "Query => {}", query)
-
-    val runQueryClosure = fun (conn: Connection, sql: String): ResultSet {
-        return conn
-            .createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)
-            .executeQuery(sql).also { it.fetchSize = 200 }
-    }
-
-
-    ctx.header("x-db-identity")?.let { key ->
-
-        val data = connection(key, query.fetchSize) { conn ->
-
-            when {
-                query.statement != null -> runQueryClosure(conn, query.statement!!)
-
-                query.table != null -> runQueryClosure(conn, "SELECT * FROM ${query.table}")
-
-                else -> throw Exception("invalid query")
-            }
-        }
-
-        ctx.json(data)
-
-    } ?: throw Exception("cannot find datasource")
-
-}
-
-
 fun getMetadata(resultSet: ResultSet): List<Column> {
 
     val columns = mutableListOf<Column>()
@@ -314,25 +223,3 @@ fun getResultData(resultSet: ResultSet, fetchSize: Int): MutableList<Map<String,
     return rows
 }
 
-fun templateHandle(ctx: Context) {
-
-   /* val model = ctx.bodyAsClass(JavaModel::class.java)
-
-    model.template?.let {
-        ctx.render("${it.lowercase()}${FREEMARKER_EXT}",
-            mapOf("columns" to model.columns,
-                ""
-            ))
-    } ?: Exception("invalid request")*/
-
-}
-
-fun createDataSourceHandler(ctx: Context) {
-    val db = ctx.bodyAsClass(Database::class.java)
-    store[db.name!!] = makeDatasource(db.driverClassName!!, db.jdbcUrl!!, db.username, db.password)
-    ctx.status(HttpStatus.OK)
-}
-
-fun getDataSourceHandler(ctx: Context) {
-    ctx.json(store.keys())
-}
